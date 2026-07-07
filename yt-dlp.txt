@@ -5,7 +5,7 @@ yt-dlp -f "bestaudio[ext=webm]/bestaudio/best" --extract-audio --audio-format wa
 ---
 Whole track, best quality available [24bit 48khz*]:
 
-yt-dlp -f "bestaudio[ext=webm]/bestaudio/best" --extract-audio --audio-format wav --audio-quality 0 --postprocessor-args "ffmpeg:-c:a pcm_s24le -ar 48000 -ac 2" --ppa "ffmpeg: -vn -sn" -o "%(title)s - %(artist)s [%(id)s].wav" "https://youtu.be/0J2QdDbelmY" --no-playlist --ffmpeg-location "C:\tools\ffmpeg\bin"
+yt-dlp -f "bestaudio[ext=webm]/bestaudio/best" --extract-audio --audio-format wav --audio-quality 0 --postprocessor-args "ffmpeg:-c:a pcm_s24le -ar 48000 -ac 2" --ppa "ffmpeg: -vn -sn" -o "%(title)s - %(artist)s [%(id)s].wav" "https://youtu.be/Ez8Q68h9i4M" --no-playlist --ffmpeg-location "C:\tools\ffmpeg\bin"
 
 *youtube opus streams are 48khz native, so 44 is downsampled!
 
