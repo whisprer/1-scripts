@@ -1,0 +1,3 @@
+[System.Environment]::SetEnvironmentVariable('GITHUB_PAT', '<key here>', [System.EnvironmentVariableTarget]::User)
+
+puts it right in there!
