@@ -1,0 +1,205 @@
+
+--------------------------------------------------------------------------
+  ESTATE TRIAGE REPORT
+--------------------------------------------------------------------------
+  Host        : DESKTOP-OS6VPVN
+  User        : owner
+  Generated   : 20/09/2026 18:33:16
+  Admin rights: YES
+  Last boot   : 14/09/2026 19:02:29
+  Uptime      : 5d 23h 30m
+
+--------------------------------------------------------------------------
+  1. REBOOT & SHUTDOWN HISTORY  (did it restart while away, and cleanly?)
+--------------------------------------------------------------------------
+    14/09/2026 19:01:38  id=1074  clean restart/shutdown (user/OS/update)
+    14/09/2026 19:01:38  id=6006  clean shutdown (event log stopped)
+    14/09/2026 19:00:13  id=6006  clean shutdown (event log stopped)
+    14/09/2026 19:00:02  id=1074  clean restart/shutdown (user/OS/update)
+    09/09/2026 04:47:52  id=1074  clean restart/shutdown (user/OS/update)
+    09/09/2026 04:47:53  id=6006  clean shutdown (event log stopped)
+    09/09/2026 04:45:56  id=6006  clean shutdown (event log stopped)
+    09/09/2026 04:44:02  id=1074  clean restart/shutdown (user/OS/update)
+    02/09/2026 12:50:07  id=6006  clean shutdown (event log stopped)
+    02/09/2026 12:49:56  id=1074  clean restart/shutdown (user/OS/update)
+    14/08/2026 19:38:46  id=6006  clean shutdown (event log stopped)
+    14/08/2026 19:38:44  id=1074  clean restart/shutdown (user/OS/update)
+    14/08/2026 14:27:32  id=6006  clean shutdown (event log stopped)
+    14/08/2026 14:27:30  id=1074  clean restart/shutdown (user/OS/update)
+    14/08/2026 13:41:17  id=1074  clean restart/shutdown (user/OS/update)
+    14/08/2026 13:41:17  id=6006  clean shutdown (event log stopped)
+    14/08/2026 13:36:34  id=1074  clean restart/shutdown (user/OS/update)
+    14/08/2026 13:36:35  id=6006  clean shutdown (event log stopped)
+    14/08/2026 13:34:02  id=6006  clean shutdown (event log stopped)
+    14/08/2026 13:32:04  id=1074  clean restart/shutdown (user/OS/update)
+    14/08/2026 13:32:02  id=1074  clean restart/shutdown (user/OS/update)
+    14/08/2026 10:54:29  id=1074  clean restart/shutdown (user/OS/update)
+    14/08/2026 10:54:29  id=6006  clean shutdown (event log stopped)
+    14/08/2026 10:47:51  id=6006  clean shutdown (event log stopped)
+    14/08/2026 10:47:35  id=1074  clean restart/shutdown (user/OS/update)
+    14/08/2026 10:03:08  id=6006  clean shutdown (event log stopped)
+    14/08/2026 10:03:06  id=1074  clean restart/shutdown (user/OS/update)
+    12/08/2026 15:29:04  id=6006  clean shutdown (event log stopped)
+    12/08/2026 15:28:57  id=1074  clean restart/shutdown (user/OS/update)
+    12/08/2026 13:44:26  id=6006  clean shutdown (event log stopped)
+    12/08/2026 13:44:21  id=1074  clean restart/shutdown (user/OS/update)
+    12/08/2026 13:41:51  id=1074  clean restart/shutdown (user/OS/update)
+    12/08/2026 21:41:09  id=6006  clean shutdown (event log stopped)
+    12/08/2026 21:41:05  id=1074  clean restart/shutdown (user/OS/update)
+  [ INFO ] Only clean restarts seen. Bad-reboot corruption is less likely - keep reading the breach checks.
+
+--------------------------------------------------------------------------
+  2. DPAPI HEALTH  (is Windows' own credential encryption still working?)
+--------------------------------------------------------------------------
+    If DPAPI were broken account-wide, saved Wi-Fi keys and Credential
+    Manager entries would ALSO be unreadable. If they're fine, the damage
+    is Vivaldi-profile-local, not systemic.
+  [ INFO ] No saved Wi-Fi profiles (ethernet box?) - skipping Wi-Fi key test.
+  [ OK   ] Credential Manager holds 3 stored credential(s) -> DPAPI reading fine.
+  [ OK   ] System credential encryption works -> the wipe is almost certainly Vivaldi-local. Strong lean to BENIGN.
+
+--------------------------------------------------------------------------
+  3. LOGON ACTIVITY  (any remote or failed logins you didn't make?)
+--------------------------------------------------------------------------
+    Logon-type tally (2=console 3=network 7=unlock 10=RemoteDesktop 11=cached):
+      type 11  : 2
+      type 4   : 4
+      type 5   : 192
+      type 7   : 2
+  [ OK   ] No RemoteDesktop (type 10) logons in the window.
+  [ OK   ] No failed-logon (4625) events in the window.
+
+--------------------------------------------------------------------------
+  4. LOCAL ACCOUNTS & ADMINISTRATORS  (any account that shouldn't exist?)
+--------------------------------------------------------------------------
+    Enabled local accounts:
+      owner                  lastLogon=20/09/2026 13:00:01  pwdSet=12/08/2026 14:50:27
+    Disabled: Administrator, DefaultAccount, Guest, WDAGUtilityAccount, WsiAccount
+  [ CHECK] Eyeball the enabled list - any name you don't recognise is a red flag.
+    Members of Administrators:
+      DESKTOP-OS6VPVN\Administrator  (User)
+      DESKTOP-OS6VPVN\owner  (User)
+  [ CHECK] Every admin here should be you or a known service. Anything else = investigate now.
+
+--------------------------------------------------------------------------
+  5. NETWORK LISTENERS & OUTBOUND  (anything phoning home or waiting for a knock?)
+--------------------------------------------------------------------------
+    NOTE: your WireGuard tunnel to the VPS is EXPECTED. WireGuard is UDP so
+    it won't appear in the TCP listener list; an outbound handshake to your
+    SGP1 IP is normal. Look for the UNfamiliar.
+    TCP ports in LISTEN:
+      0.0.0.0               :135    pid=1316   svchost
+      10.203.77.2           :139    pid=4      System
+      ::                    :445    pid=4      System
+      127.0.0.1             :843    pid=12192  Dropbox
+      0.0.0.0               :5040   pid=1928   svchost
+      127.0.0.1             :6463   pid=1428   Discord
+      10.203.77.2           :11434  pid=2060   svchost
+      0.0.0.0               :17500  pid=12192  Dropbox
+      127.0.0.1             :17600  pid=12192  Dropbox
+      ::1                   :42050  pid=15592  OneDrive.Sync.Service
+      ::                    :49664  pid=1132   lsass
+      ::                    :49665  pid=760    wininit
+      ::                    :49666  pid=1736   svchost
+      0.0.0.0               :49667  pid=2060   svchost
+      ::                    :49668  pid=3108   spoolsv
+      0.0.0.0               :49670  pid=968    services
+      127.0.0.1             :51824  pid=9424   ollama app
+      127.0.0.1             :53336  pid=11704  GitHubDesktop
+  [ OK   ] RDP (3389) is not listening.
+    Established connections to external IPs:
+      -> 68.183.227.135        :443    pid=10856  vivaldi
+      -> 216.58.198.35         :443    pid=10856  vivaldi
+      -> 68.183.227.135        :443    pid=10856  vivaldi
+      -> 31.209.137.48         :61613  pid=10856  vivaldi
+      -> 162.159.138.234       :2096   pid=7968   Discord
+      -> 192.178.223.84        :443    pid=10856  vivaldi
+      -> 172.64.155.209        :443    pid=10856  vivaldi
+      -> 104.18.0.22           :443    pid=10856  vivaldi
+      -> 18.172.153.50         :443    pid=10856  vivaldi
+      -> 35.186.224.39         :443    pid=7968   Discord
+      -> 142.250.102.188       :5228   pid=10856  vivaldi
+      -> 52.123.242.82         :443    pid=10856  vivaldi
+      -> 35.186.224.24         :443    pid=7968   Discord
+      -> 172.217.113.4         :443    pid=16324  NVIDIA Overlay
+      -> 104.18.39.21          :443    pid=10856  vivaldi
+      -> 52.105.58.27          :443    pid=840    OneDrive
+      -> 13.107.137.11         :443    pid=840    OneDrive
+      -> 172.187.86.74         :443    pid=2060   svchost
+      -> 185.159.156.123       :443    pid=18792  ProtonVPN.WireGuardService
+      -> 172.187.86.74         :443    pid=2060   svchost
+      -> 162.159.133.234       :443    pid=7968   Discord
+      -> 162.159.153.4         :443    pid=10856  vivaldi
+      -> 87.248.116.11         :443    pid=10856  vivaldi
+      -> 192.178.223.84        :443    pid=10856  vivaldi
+      -> 162.159.137.234       :2096   pid=7968   Discord
+      -> 68.183.227.135        :2357   pid=17596  ssh
+      -> 162.125.21.3          :443    pid=12192  Dropbox
+      -> 142.251.29.132        :443    pid=10856  vivaldi
+      -> 4.208.35.46           :443    pid=10856  vivaldi
+      -> 142.251.153.119       :443    pid=10856  vivaldi
+      -> 162.159.153.4         :443    pid=10856  vivaldi
+      -> 142.250.140.139       :443    pid=10856  vivaldi
+      -> 185.70.42.37          :443    pid=10856  vivaldi
+      -> 162.125.21.2          :443    pid=12192  Dropbox
+      -> 172.187.86.74         :443    pid=840    OneDrive
+      -> 216.58.198.35         :443    pid=10856  vivaldi
+      -> 142.251.153.119       :443    pid=10856  vivaldi
+      -> 142.251.153.119       :443    pid=10856  vivaldi
+      -> 162.159.152.4         :443    pid=10856  vivaldi
+  [ CHECK] Match each to something you trust (browser, WireGuard, updater). Unknown process + external IP = investigate.
+
+--------------------------------------------------------------------------
+  6. PERSISTENCE  (what would relaunch a backdoor after reboot?)
+--------------------------------------------------------------------------
+    HKCU:\Software\Microsoft\Windows\CurrentVersion\Run
+      Discord = "C:\Users\owner\AppData\Local\Discord\Update.exe" --processStart Discord.exe --process-start-args "--start-inactive"
+      OneDrive = "C:\Users\owner\AppData\Local\Microsoft\OneDrive\OneDrive.exe" /background
+      Docker Desktop = C:\Program Files\Docker\Docker\Docker Desktop.exe
+      Proton VPN = C:\Program Files\Proton\VPN\ProtonVPN.Launcher.exe "----ms-protocol:ms-encodedlaunch:App?ContractId=Windows.StartupTask&TaskId=Proton%20VPN"
+    HKLM:\Software\Microsoft\Windows\CurrentVersion\Run
+      SecurityHealth = C:\WINDOWS\system32\SecurityHealthSystray.exe
+    HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce
+      Delete Cached Update Binary = C:\WINDOWS\system32\cmd.exe /q /c del /q "C:\Users\owner\AppData\Local\Microsoft\OneDrive\Update\OneDriveSetup.exe"
+      Delete Cached Standalone Update Binary = C:\WINDOWS\system32\cmd.exe /q /c del /q "C:\Users\owner\AppData\Local\Microsoft\OneDrive\StandaloneUpdater\OneDriveSetup.exe"
+      Uninstall 26.153.0809.0004 = C:\WINDOWS\system32\cmd.exe /q /c rmdir /s /q "C:\Users\owner\AppData\Local\Microsoft\OneDrive\26.153.0809.0004"
+  [ CHECK] Confirm each autostart above is a program you installed.
+    Enabled non-Microsoft scheduled tasks:
+      \AMDLinkUpdate   ->  C:\Program Files\AMD\CIM\Bin64\InstallManagerApp.exe
+      \MicrosoftEdgeUpdateTaskMachineCore{D7D6BF70-B8EB-4EAD-A85C-0A1A9CBC93BD}   ->  C:\Program Files (x86)\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe
+      \MicrosoftEdgeUpdateTaskMachineUA{BF7B17DA-888B-477C-8AA5-1E91F37E8C43}   ->  C:\Program Files (x86)\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe
+      \ModifyLinkUpdate   ->  C:\Program Files\AMD\CIM\Bin64\InstallManagerApp.exe
+      \NVIDIA App SelfUpdate_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}   ->  "C:\Program Files\NVIDIA Corporation\NVIDIA App\CEF\NVIDIA App.exe"
+      \OneDrive Reporting Task-S-1-5-21-3437681554-78741240-1820589234-1000   ->  %localappdata%\Microsoft\OneDrive\OneDriveStandaloneUpdater.exe
+      \OneDrive Standalone Update Task-S-1-5-21-3437681554-78741240-1820589234-1000   ->  %localappdata%\Microsoft\OneDrive\OneDriveStandaloneUpdater.exe
+      \OneDrive Startup Task-S-1-5-21-3437681554-78741240-1820589234-1000   ->  C:\Users\owner\AppData\Local\Microsoft\OneDrive\26.163.0823.0004\OneDriveLauncher.exe
+      \Proton VPN NRPT watchdog   ->  C:\Program Files\Proton\VPN\v5.1.8\ProtonVPN.NrptWatchdog.exe
+      \UsbMonitor   ->  C:\35inchENG\UsbMonitor.exe
+      \VivaldiUpdateCheck-104c4ab6acfb0c8d   ->  C:\Users\owner\AppData\Local\Vivaldi\Application\update_notifier.exe
+      \DropboxSystem\DropboxUpdater\DropboxUpdaterTaskSystem136.0.7068.224{0E714502-5D7D-4312-910B-DC2A1796261B}   ->  "C:\Program Files\Dropbox\DropboxUpdater\136.0.7068.224\updater.exe"
+  [ CHECK] Any task launching a script/exe from a temp/user/AppData path is suspicious.
+
+--------------------------------------------------------------------------
+  7. VIVALDI PROFILE STATE  (profile corruption, or a full reset?)
+--------------------------------------------------------------------------
+    Login Data     size=   419840 bytes  modified=20/09/2026 14:14:06
+    Web Data       size=  1867776 bytes  modified=20/09/2026 18:27:46
+    Preferences    size=   128126 bytes  modified=20/09/2026 18:31:41
+  [ INFO ] 'Login Data' is 419840 bytes - store isn't empty; entries may exist but be undecryptable (keychain/DPAPI mismatch).
+    (the 'modified' timestamps above tell you WHEN the reset happened)
+
+--------------------------------------------------------------------------
+  SUMMARY
+--------------------------------------------------------------------------
+  No hard breach-flags were raised by the automated checks.
+  Combined with a Vivaldi-only credential wipe, this leans strongly toward
+  PROFILE CORRUPTION (most likely a bad reboot), NOT an intrusion.
+
+  STILL TO DO BY HAND (this script can't see them):
+    * VPS side:  sudo last -a | head
+                 cat ~/.ssh/authorized_keys /root/.ssh/authorized_keys  (ONLY your key?)
+                 sudo grep Accepted /var/log/auth.log | tail ; sudo ss -tlnp
+    * Run Sysinternals Autoruns for the deep persistence sweep.
+    * If Vivaldi Sync was on, see if a cloud copy can restore creds -
+      but don't let an empty local profile overwrite a good cloud one.
+
