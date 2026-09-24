@@ -1,0 +1,1 @@
+powershell -ExecutionPolicy Bypass -File .\automate_repo_convergence.ps1
