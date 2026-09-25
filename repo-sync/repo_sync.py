@@ -152,6 +152,66 @@ def out(msg: str = "") -> None:
         print(msg, flush=True)
 
 
+def fmt_duration(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    if seconds < 90:
+        return f"{seconds}s"
+    if seconds < 90 * 60:
+        return f"{seconds // 60}m"
+    return f"{seconds // 3600}h{(seconds % 3600) // 60:02d}m"
+
+
+class Progress:
+    """One line that rewrites itself, so a long job over a NAS share never looks wedged.
+    Goes to the console only - never into a --log report."""
+
+    def __init__(self, total: int, what: str, every: float = 1.0, warmup: int = 0) -> None:
+        self.total = total
+        self.what = what
+        self.every = every
+        # With N workers the first N results all land after roughly one whole task, so a rate
+        # measured across that ramp reads far worse than the truth. Start the clock after it.
+        self.warmup = min(max(0, warmup), max(0, total - 1))
+        self.n = 0
+        self.base = 0
+        self.start = time.time()
+        self.last = 0.0
+        self.lock = threading.Lock()
+        try:
+            # a rewriting line only makes sense on a console; piped or redirected it
+            # would smear every update into the file
+            self.live = bool(sys.stdout.isatty())
+        except (AttributeError, ValueError):
+            self.live = False
+
+    def step(self, n: int = 1) -> None:
+        if not self.live:
+            return
+        with self.lock:
+            self.n += n
+            now = time.time()
+            if now - self.last < self.every and self.n < self.total:
+                return
+            if self.n == self.warmup:
+                self.start, self.base = now, self.n      # ramp over: time the steady state
+            self.last = now
+            done, started, base = self.n, self.start, self.base
+        measured = done - base
+        rate = measured / (now - started) if now > started and measured else 0.0
+        if rate and done < self.total:
+            eta = f"  ~{fmt_duration((self.total - done) / rate)} left"
+        else:
+            eta = "  (working out how long ...)" if done < self.total else ""
+        with _print_lock:
+            print(f"\r     {self.what}: {done}/{self.total}{eta}          ", end="", flush=True)
+
+    def done(self) -> None:
+        if not self.live:
+            return
+        with _print_lock:
+            print("\r" + " " * 78 + "\r", end="", flush=True)
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -3520,6 +3580,32 @@ def linked_worktrees(repo: Path) -> list[str]:
         return []
 
 
+def status_and_ignored(git: Git, repo: Path) -> tuple[list[Entry], list[str]]:
+    """Working-tree state and the ignored files that matter, from ONE walk. Over SMB a walk
+    is thousands of round trips, so asking git twice doubles the cost of the whole command."""
+    r = git.run(repo, "status", "--porcelain=v1", "-z", "--untracked-files=normal",
+                "--ignored=traditional", "--no-renames")
+    if not r.ok:
+        raise RepoError(f"git status failed: {r.why()}")
+    entries: list[Entry] = []
+    ignored: list[str] = []
+    for item in r.out.split("\x00"):
+        if len(item) < 4:
+            continue
+        if item.startswith("!! "):
+            rel = item[3:].rstrip("/")
+            if item.endswith("/") and rel.split("/")[-1] in CACHE_DIR_NAMES:
+                continue
+            full = repo / rel
+            if os.path.isdir(longpath(full)):
+                ignored += [f"{rel}/{sub}" for sub, _ in iter_worktree_files(full)]
+            else:
+                ignored.append(rel)
+        else:
+            entries.append(Entry(item[:2], item[3:]))
+    return entries, ignored
+
+
 def custom_hooks(repo: Path) -> list[str]:
     d = repo / ".git" / "hooks"
     try:
@@ -3614,41 +3700,50 @@ def cmd_dupes(args: argparse.Namespace) -> int:
         return tips, tags
 
     def examine(p: Path) -> DupeInfo:
+        """Cheap checks first. Hashing every byte is the whole cost over a NAS share, so it
+        happens last and only for a copy no live repo accounts for - which is the minority."""
         d = DupeInfo(p)
         try:
-            d.fp = fingerprint_full(git, p)
             r = git.run(p, "rev-list", "--exclude=refs/repo-sync/*", "--all", "--reflog", "--no-walk")
             if not r.ok:
                 raise RepoError(f"couldn't list its commits: {r.why()}")
             d.tips = sorted(set(r.out.split()))
             t = git.run(p, "for-each-ref", "--format=%(refname)%00%(objectname)", "refs/tags")
             d.tags = dict(line.split("\x00", 1) for line in t.out.splitlines() if "\x00" in line)
-            d.dirty = len(status_entries(git, p))
-            d.ignored = ignored_files(git, p)
             d.hooks = custom_hooks(p)
             d.worktrees = linked_worktrees(p)
-            d.size = folder_size(p)
-            d.mtime = os.path.getmtime(longpath(p))
-            if d.dirty:
-                d.why_kept = f"{d.dirty} uncommitted/untracked file(s)"
-                return d
+            try:
+                d.mtime = os.path.getmtime(longpath(p))
+            except OSError:
+                d.mtime = 0.0
             if d.worktrees:
                 d.why_kept = f"other working trees are attached to it ({', '.join(d.worktrees[:3])})"
                 return d
-            if not d.tips and not d.tags:
-                return d                                    # no commits at all: judged below
-            live_cands = sorted({lp for rt in root_commits(git, p) for lp in index.get(rt, [])}, key=str)
-            if not live_cands:
-                d.why_kept = "no live repo shares its history"
+            # Commits are settled from refs alone - no file reading. A copy that fails here is
+            # kept whatever its working tree looks like, so it never earns a walk.
+            matches: list[Path] = []
+            if d.tips or d.tags:
+                live_cands = sorted({lp for rt in root_commits(git, p) for lp in index.get(rt, [])}, key=str)
+                if not live_cands:
+                    d.why_kept = "no live repo shares its history"
+                for lp in live_cands:
+                    excl, ltags = live_facts(lp)
+                    if not all_commits_present(git, lp, d.tips) or count_not_in(git, lp, d.tips, excl) != 0:
+                        d.why_kept = f"has commits {lp.name} doesn't have on any branch or tag"
+                        continue
+                    if any(ltags.get(name) != obj for name, obj in d.tags.items()):
+                        d.why_kept = f"has tags {lp.name} doesn't have"
+                        continue
+                    matches.append(lp)
+                if not matches:
+                    return d
+            # only now is the working tree worth a look: one walk, both answers
+            entries, d.ignored = status_and_ignored(git, p)
+            d.dirty = len(entries)
+            if d.dirty:
+                d.why_kept = f"{d.dirty} uncommitted/untracked item(s)"
                 return d
-            for lp in live_cands:
-                excl, ltags = live_facts(lp)
-                if not all_commits_present(git, lp, d.tips) or count_not_in(git, lp, d.tips, excl) != 0:
-                    d.why_kept = f"has commits {lp.name} doesn't have on any branch or tag"
-                    continue
-                if any(ltags.get(name) != obj for name, obj in d.tags.items()):
-                    d.why_kept = f"has tags {lp.name} doesn't have"
-                    continue
+            for lp in matches:
                 if not all(_same_file(p / rel, lp / rel) for rel in d.ignored):
                     d.why_kept = f"has ignored files (e.g. {d.ignored[0]}) that differ from {lp.name}"
                     continue
@@ -3656,15 +3751,31 @@ def cmd_dupes(args: argparse.Namespace) -> int:
                     d.why_kept = f"has git hooks {lp.name} doesn't"
                     continue
                 d.contained_in = lp
-                return d
+                d.why_kept = ""
+                break
+            if args.sizes:
+                d.size = folder_size(p)
         except (RepoError, OSError) as e:
             d.error = str(e)
             d.why_kept = f"couldn't check: {e}"
         return d
 
-    out("Checking each copy (hashing files; can take a while on the NAS) ...")
+    out(f"Checking {len(cands)} copies, {args.jobs} at a time. The share's round-trip time is the")
+    out("limit here, not bandwidth, so --jobs 32 or 64 is usually worth trying."
+        + ("" if args.sizes else "  (--sizes adds"))
+    if not args.sizes:
+        out("disk-use totals, at the price of another full walk of every file.)")
+    bar = Progress(len(cands), "checked", warmup=max(1, args.jobs))
+    infos = []
     with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as ex:
-        infos = list(ex.map(examine, cands))
+        # as_completed, not map: map hands results back in submission order, so one slow
+        # copy stalls the counter and the time left reads far worse than reality
+        futures = {ex.submit(examine, c): c for c in cands}
+        for fut in as_completed(futures):
+            infos.append(fut.result())
+            bar.step()
+    bar.done()
+    infos.sort(key=lambda d: str(d.path).lower())
 
     deletable: dict[Path, str] = {}
     keeper_of: dict[Path, Path] = {}
@@ -3676,9 +3787,34 @@ def cmd_dupes(args: argparse.Namespace) -> int:
         elif (not d.tips and not d.tags and d.dirty == 0 and not d.ignored
               and not d.hooks and not d.worktrees):
             deletable[d.path] = "empty repo, nothing inside"
+    # An exact twin must have the exact same refs, so copies with a one-of-a-kind ref set
+    # cannot be anyone's twin and never need hashing - which over SMB is the whole cost.
+    by_refs: dict[tuple, list[DupeInfo]] = {}
+    for d in infos:
+        if d.error or d.path in deletable:
+            continue
+        by_refs.setdefault((tuple(d.tips), tuple(sorted(d.tags.items())), d.dirty), []).append(d)
+    maybe_twins = [d for g in by_refs.values() if len(g) > 1 for d in g]
+    if maybe_twins:
+        out(f"{len(maybe_twins)} copies look alike; hashing those to see which are exact twins ...")
+        bar = Progress(len(maybe_twins), "hashing", warmup=max(1, args.jobs))
+
+        def hash_one(d: DupeInfo) -> DupeInfo:
+            try:
+                d.fp = fingerprint_full(git, d.path)
+            except OSError as e:
+                d.error = d.error or str(e)
+            return d
+
+        with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as ex:
+            for fut in as_completed({ex.submit(hash_one, d): d for d in maybe_twins}):
+                fut.result()
+                bar.step()
+        bar.done()
+
     groups: dict[str, list[DupeInfo]] = {}
     for d in infos:
-        if not d.error:
+        if not d.error and d.fp:          # contained copies have no hash, and are already going
             groups.setdefault(d.fp, []).append(d)
     for members in groups.values():
         if len(members) < 2:
@@ -3690,16 +3826,19 @@ def cmd_dupes(args: argparse.Namespace) -> int:
             deletable[m.path] = f"identical to {keep.path}"
             keeper_of[m.path] = keep.path
 
-    reclaim = sum(d.size for d in infos if d.path in deletable)
+    def sz(d: DupeInfo) -> str:
+        return f"  ({human_bytes(d.size)})" if args.sizes else ""
+
+    reclaim = f", {human_bytes(sum(d.size for d in infos if d.path in deletable))}" if args.sizes else ""
     out("")
-    out(f"HOLD NOTHING NEW - safe to delete ({len(deletable)}, {human_bytes(reclaim)}):")
+    out(f"HOLD NOTHING NEW - safe to delete ({len(deletable)}{reclaim}):")
     for d in infos:
         if d.path in deletable:
-            out(f"  - {d.path}  ({human_bytes(d.size)})  {deletable[d.path]}")
+            out(f"  - {d.path}{sz(d)}  {deletable[d.path]}")
     kept = [d for d in infos if d.path not in deletable]
     out(f"HAVE SOMETHING UNIQUE - kept ({len(kept)}):")
     for d in kept:
-        out(f"  - {d.path}  ({human_bytes(d.size)})  {d.why_kept or 'unique'}")
+        out(f"  - {d.path}{sz(d)}  {d.why_kept or 'unique'}")
     if not args.apply:
         out("\nDry run. Add --apply to delete the 'hold nothing new' copies.")
         return 0
@@ -3714,6 +3853,24 @@ def cmd_dupes(args: argparse.Namespace) -> int:
             out("Cancelled. Nothing deleted.")
             return 0
     by_path = {d.path: d for d in infos}
+
+    def still_true(path: Path, reason: str, before: DupeInfo) -> bool:
+        """Re-prove the exact reason this copy was listed, right before it goes."""
+        fresh = examine(path)
+        if fresh.error:
+            return False
+        if reason.startswith("everything in it is already in"):
+            return fresh.contained_in is not None
+        if reason.startswith("empty repo"):
+            return (not fresh.tips and not fresh.tags and fresh.dirty == 0
+                    and not fresh.ignored and not fresh.hooks and not fresh.worktrees)
+        if not before.fp:                                     # "identical to <other copy>"
+            return False
+        try:
+            return fingerprint_full(git, path) == before.fp
+        except OSError:
+            return False
+
     failed = 0
     for path in deletable:
         keeper = keeper_of.get(path)
@@ -3724,11 +3881,7 @@ def cmd_dupes(args: argparse.Namespace) -> int:
         if src is not None and not os.path.isdir(longpath(src / ".git")):
             out(f"  skipped (the live repo it relies on is gone): {path}")
             continue
-        try:
-            changed = fingerprint_full(git, path) != by_path[path].fp
-        except OSError:
-            changed = True
-        if changed:
+        if not still_true(path, deletable[path], by_path[path]):
             out(f"  skipped (changed since the check): {path}")
             continue
         ok, err = delete_repo_folder(path)
@@ -3758,7 +3911,8 @@ class TriageTree:
     sampled: int = 0
     newest: int = 0            # newest commit, unix seconds
     newest_file: float = 0.0
-    size: int = 0
+    size: int = 0             # scaled up from the sample, not an exact walk
+    sample_bytes: int = 0
 
     @property
     def flat(self) -> bool:
@@ -3865,9 +4019,14 @@ def cmd_triage(args: argparse.Namespace) -> int:
         say(f"No repo copies found under {root} (looked {args.depth} folders deep). Try --depth 5.")
         return finish(0)
 
-    say(f"     {sum(len(t.repos) for t in trees)} repo copies in {len(trees)} place(s). Reading them ...")
+    total = sum(len(t.repos) for t in trees)
+    say(f"     {total} repo copies in {len(trees)} place(s).")
 
-    def measure(t: TriageTree) -> None:
+    # names and dates: one stat per copy, no git
+    bar = Progress(total, "dates")
+    jobs: list[tuple[TriageTree, Path]] = []
+    for t in trees:
+        stamped = []
         for p in t.repos:
             try:
                 depth = len(p.relative_to(t.path).parts)
@@ -3879,24 +4038,38 @@ def cmd_triage(args: argparse.Namespace) -> int:
                 t.kebab += 1
             if p.name.lower() in p52_names:
                 t.in_p52 += 1
-        stamped = []
-        for p in t.repos:
             try:
                 stamped.append((os.path.getmtime(longpath(p)), p))
             except OSError:
                 stamped.append((0.0, p))
+            bar.step()
         stamped.sort(key=lambda x: x[0], reverse=True)
         t.newest_file = stamped[0][0]
-        for _, p in stamped[:max(1, args.sample)]:
-            t.sampled += 1
-            t.newest = max(t.newest, newest_commit(git, p))
-            if origin_url(git, p):
-                t.origins += 1
-        if args.size:
-            t.size = sum(folder_size(p) for p in t.repos)
+        jobs += [(t, p) for _, p in stamped[:max(1, args.sample)]]
+    bar.done()
+
+    # git only on a sample per place; sizes too, because walking every file of every
+    # copy over SMB takes hours. The sizes below are scaled up from that sample.
+    say(f"     reading {len(jobs)} of them for dates, origins"
+        + (" and sizes" if args.size else "") + f" ({args.jobs} at a time) ...")
+    bar = Progress(len(jobs), "reading", warmup=max(1, args.jobs))
+
+    def look(job: tuple) -> tuple:
+        t, p = job
+        return (t, newest_commit(git, p), bool(origin_url(git, p)),
+                folder_size(p) if args.size else 0)
 
     with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as ex:
-        list(ex.map(measure, trees))
+        for t, newest, has_origin, size in ex.map(look, jobs):
+            t.sampled += 1
+            t.newest = max(t.newest, newest)
+            t.origins += 1 if has_origin else 0
+            t.sample_bytes += size
+            bar.step()
+    bar.done()
+    if args.size:
+        for t in trees:
+            t.size = round(t.sample_bytes / t.sampled * len(t.repos)) if t.sampled else 0
 
     trees.sort(key=lambda t: (t.usable, len(t.repos), t.newest), reverse=True)
 
@@ -3908,7 +4081,7 @@ def cmd_triage(args: argparse.Namespace) -> int:
 
     head = ["place", "repos", "layout", "also on P52", "new names", "newest file", "newest commit", "origins"]
     if args.size:
-        head.append("size")
+        head.append("size (est)")
     rows = []
     for t in trees:
         n = len(t.repos)
@@ -3919,7 +4092,7 @@ def cmd_triage(args: argparse.Namespace) -> int:
                when(t.newest_file), when(t.newest),
                f"{t.origins}/{t.sampled}"]
         if args.size:
-            row.append(human_bytes(t.size))
+            row.append("~" + human_bytes(t.size))
         rows.append(row)
     width = [max(len(head[i]), max(len(r[i]) for r in rows)) for i in range(len(head))]
 
@@ -4030,13 +4203,16 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--depth", type=int, default=3, help="how deep to look under each root (default 3)")
     d.add_argument("--apply", action="store_true", help="delete them (asks for YES)")
     d.add_argument("--yes", action="store_true", help="don't ask")
+    d.add_argument("--sizes", action="store_true",
+                   help="also add up what each copy uses (another walk of every file)")
 
     t = sub.add_parser("triage", help="several complete copies on the NAS? see which one to keep. Read only")
     common(t)
     t.add_argument("--root", default=DEFAULT_NAS_ROOT, help=f"the share to look at (default {DEFAULT_NAS_ROOT})")
     t.add_argument("--depth", type=int, default=3, help="how deep to look under each folder (default 3)")
     t.add_argument("--sample", type=int, default=40, help="repos read per place for dates/origins (default 40)")
-    t.add_argument("--size", action="store_true", help="also measure each place (slow over SMB)")
+    t.add_argument("--size", action="store_true",
+                   help="also estimate each place's size, from the sampled repos")
     t.add_argument("--log", default="", help="save the report to this file as well")
     return p
 

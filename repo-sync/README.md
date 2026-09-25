@@ -101,6 +101,20 @@ through it in this order — the first two steps change nothing at all.
 no commits, a corrupt `.git`, no `origin`, a detached HEAD, linked worktrees, unreadable
 folders, `#recycle` and `System Volume Information`. None of those stop the report.
 
+**How long things take.** Over SMB the file reads are everything, so:
+
+| step | what it reads | on ~2,000 copies |
+|---|---|---|
+| `-Triage` | one date per copy, then git on 40 per place | a minute or two |
+| `-Triage -Size` | the above, plus a file walk of those 40 per place; each place's size is **scaled up from that sample**, which is why it's shown as `~` | a few minutes |
+| `-Dupes` | **every file of every copy**, hashed — no way round it, that's what proves a copy holds nothing new | long. Watch the counter |
+
+Every long step prints a live `n/total` with a rough time left, so it never looks wedged. That
+counter goes to the console only and never into `-Log`. If the network isn't busy, `-Depth`'s
+neighbour `--jobs 16` (via `-- --jobs 16`) roughly doubles the throughput. `-Dupes` can also be
+pointed at one tree at a time — `py -3 repo_sync.py dupes --root "Z:\GitHub-Repos-2025-07-03"`
+— if you'd rather chip away at it.
+
 It lists every tree it finds on the share with a repo count, whether the repos sit directly
 inside it (`flat`, which is what `--nas-base` expects), how many folder names match the new
 style, the newest commit in it, and how many have a working `origin`. Then it names the tree
