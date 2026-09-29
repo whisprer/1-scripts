@@ -65,7 +65,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
-TOOL_VERSION = "2.2.0"
+TOOL_VERSION = "2.1.0"
 
 # ---------------------------------------------------------------------------
 # CONFIG - edit these defaults, or override on the command line
@@ -3645,45 +3645,11 @@ class DupeInfo:
     hooks: list = field(default_factory=list)
     worktrees: list = field(default_factory=list)
     dirty_names: list = field(default_factory=list)
-    stamps: int = 0
     size: int = 0
     mtime: float = 0.0
     contained_in: Optional[Path] = None
     why_kept: str = ""
     error: str = ""
-
-
-def stamp_leftovers(git: Git, repo: Path, entries: list, templates: dict) -> set:
-    """Paths that are only the old repo_convergence.py's doing: a top-level doc byte-identical
-    to your template, or a README whose sole change is its header block. Anything you actually
-    wrote fails both tests and still counts as your work."""
-    found: set = set()
-    for e in entries:
-        rel = e.path.replace("\\", "/")
-        if "/" in rel:                                   # top level only
-            continue
-        name = rel.split("/")[-1]
-        if name in STAMP_DOCS:
-            tpl = templates.get(name)
-            if tpl is None:
-                continue
-            try:
-                with open(longpath(repo / rel), "rb") as f:
-                    if f.read() == tpl:
-                        found.add(e.path)
-            except OSError:
-                pass
-        elif name.lower() == "readme.md":
-            try:
-                with open(longpath(repo / rel), encoding="utf-8", errors="replace") as f:
-                    working = f.read()
-            except OSError:
-                continue
-            head_r = git.run(repo, "show", f"HEAD:{rel}")
-            head = head_r.out if head_r.ok else None
-            if readme_is_pure_stamp(working, head, [repo.name]):
-                found.add(e.path)
-    return found
 
 
 def kept_reason(d: DupeInfo) -> str:
@@ -3716,15 +3682,6 @@ def kept_reason(d: DupeInfo) -> str:
 
 def cmd_dupes(args: argparse.Namespace) -> int:
     git = Git(find_git())
-    templates: dict = {}
-    if args.ignore_stamps:
-        templates = load_templates(Path(args.docs_base))
-        if not templates:
-            raise SystemExit(f"--ignore-stamps needs your templates, and none were found in "
-                             f"{args.docs_base}.\nPoint --docs-base at the folder holding "
-                             f"{', '.join(STAMP_DOCS)}.")
-        out(f"Disregarding old-script leftovers that match your templates in {args.docs_base} "
-            f"({len(templates)} of them).")
     roots = [Path(r) for r in args.root]
     for r in roots:
         if not os.path.isdir(longpath(r)):
@@ -3813,11 +3770,6 @@ def cmd_dupes(args: argparse.Namespace) -> int:
                     return d
             # only now is the working tree worth a look: one walk, both answers
             entries, d.ignored = status_and_ignored(git, p, timeout=args.timeout)
-            if templates:
-                drop = stamp_leftovers(git, p, entries, templates)
-                if drop:
-                    d.stamps = len(drop)
-                    entries = [e for e in entries if e.path not in drop]
             d.dirty = len(entries)
             d.dirty_names = sorted({e.path.replace("\\", "/").split("/")[-1] for e in entries})[:20]
             if d.dirty:
@@ -3917,13 +3869,7 @@ def cmd_dupes(args: argparse.Namespace) -> int:
             out(f"  - {d.path}{sz(d)}  {deletable[d.path]}")
     kept = [d for d in infos if d.path not in deletable]
     out(f"HAVE SOMETHING UNIQUE - kept ({len(kept)}):")
-    if args.reason:
-        want = [d for d in kept if args.reason.lower() in kept_reason(d).lower()
-                or args.reason.lower() in (d.why_kept or "").lower()]
-        out(f"  ({len(want)} matching '{args.reason}')")
-        for d in want:
-            out(f"  - {d.path}{sz(d)}  {d.why_kept or 'unique'}")
-    elif args.all:
+    if args.all:
         for d in kept:
             out(f"  - {d.path}{sz(d)}  {d.why_kept or 'unique'}")
     else:
@@ -3944,12 +3890,7 @@ def cmd_dupes(args: argparse.Namespace) -> int:
             if top:
                 out("         the files most often in the way: "
                     + ", ".join(f"{n} ({c})" for n, c in top))
-        stamped = sum(1 for d in infos if d.stamps)
-        if stamped:
-            out(f"  ({stamped} copies had old-script leftovers disregarded)")
-        elif not args.ignore_stamps:
-            out("  (--ignore-stamps disregards the old script's uncommitted README/doc leftovers)")
-        out("  (--all lists every one; --reason TEXT opens just one group)")
+        out("  (--all lists every one of them)")
     if not args.apply:
         out("\nDry run. Add --apply to delete the 'hold nothing new' copies.")
         return 0
@@ -4315,13 +4256,6 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--apply", action="store_true", help="delete them (asks for YES)")
     d.add_argument("--yes", action="store_true", help="don't ask")
     d.add_argument("--all", action="store_true", help="list every kept copy instead of a summary")
-    d.add_argument("--reason", default="", metavar="TEXT",
-                   help="list in full only the kept copies whose reason contains TEXT")
-    d.add_argument("--ignore-stamps", action="store_true",
-                   help="don't count the old script's uncommitted README header and template docs "
-                        "as work. A doc only qualifies if it is byte-identical to yours in --docs-base")
-    d.add_argument("--docs-base", default=DEFAULT_DOCS_BASE,
-                   help=f"folder holding your doc templates (default {DEFAULT_DOCS_BASE})")
     d.add_argument("--timeout", type=int, default=120, metavar="SECONDS",
                    help="give up reading one copy after this long (default 120). A copy that "
                         "can't be read is kept, so a long wait buys nothing")
