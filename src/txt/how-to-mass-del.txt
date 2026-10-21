@@ -1,0 +1,8 @@
+$target = 'Z:\@Recycle\GitHub-Repos-bak'
+
+# Dry run: list what would be removed
+Get-ChildItem -LiteralPath $target -Recurse -Force |
+  Select-Object FullName, Length
+
+# Then delete permanently, bypassing Recycle Bin
+Remove-Item -LiteralPath $target -Recurse -Force
